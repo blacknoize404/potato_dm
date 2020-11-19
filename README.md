@@ -4,6 +4,12 @@ Currently under development, not suitable for production, and filled with bugs d
 
 Basic download manager for node.js, with automatic pause/resume
 
+## Install
+
+yarn:	`yarn add https://github.com/daroxs95/potato_dm`
+
+npm:	`npm install https://github.com/daroxs95/potato_dm`
+
 ## How to use
 ``` 
 import { try_download } from 'potato_dm'
