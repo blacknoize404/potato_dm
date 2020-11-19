@@ -2,7 +2,6 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
-import mkdir_p from './mkdir_p.js'
 
 /**
  * Tries to download the requested url to rquested path
@@ -37,18 +36,14 @@ export function try_download(url_path, to_path = '') {
             req.end();
         }
 
-        if (!(to_path === '') && !fs.existsSync(to_path)) {
-            try {
-                mkdir_p(to_path).then(() => { console.log('asdad'); return download() }).catch((err) => { console.log(err) });
-            } catch (err) {
-                console.error(err)
+
+        fs.promises.mkdir(to_path, { recursive: true })
+            .then(() => { console.log('asdad'); return download() })
+            .catch((err) => {
+                //console.error(err)
                 console.log("Cannot create output directory, setting to default: " + process.cwd())
                 to_path = "";
                 return download();
-            }
-        } else {
-            return download();
-        }
-
+            });
     });
 }
