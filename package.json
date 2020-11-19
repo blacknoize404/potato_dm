@@ -1,0 +1,27 @@
+{
+  "type": "module",
+  "name": "potato_dm",
+  "version": "1.0.0",
+  "description": "basic downloader manager, with auto pause/continue",
+  "main": "downloader.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daroxs95/potato_dm.git"
+  },
+  "keywords": [
+    "node",
+    "node.js",
+    "download",
+    "downloader",
+    "potatobite"
+  ],
+  "author": "potatobite team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/daroxs95/potato_dm/issues"
+  },
+  "homepage": "https://github.com/daroxs95/potato_dm#readme"
+}
