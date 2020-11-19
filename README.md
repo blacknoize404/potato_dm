@@ -16,4 +16,4 @@ try_download('https://potatobite.github.com/assets/quotes.txt', "./downloads/tex
 
 ## Future
 
-In the future we are creating a deno module with no 
+In the future we are creating a deno module with no use of node modules, only "std" 
