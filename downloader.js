@@ -32,8 +32,7 @@ export async function try_download(url_path, to_path = '') {
             const req = protocol.request({...options, ...extra_headers }, (res => {
                 res.on('data', function(chunk) {
                     actual_size = actual_size + chunk.length;
-                    console.log(actual_size * 100 / headers['content-length'] + '\r');
-                    //process.stdout.write('' + actual_size * 100 / headers['content-length']);
+                    process.stdout.write(`\rProgress: ${Math.round(actual_size * 100 / headers['content-length'])}%`)
                 });
                 res.on('end', () => {
                     resolve(true); // successfully fill promise
