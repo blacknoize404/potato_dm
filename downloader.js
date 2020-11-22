@@ -3,7 +3,6 @@ import https from 'https'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
-import { throws } from 'assert'
 
 /**
  * Tries to download the requested url to requested path
@@ -28,14 +27,21 @@ export async function try_download(url_path, to_path = '') {
     if (url_parsed.protocol == "https") { protocol = https };
 
     return new Promise(function(resolve, reject) {
-        const download = ({ extra_headers = {}, write_mode = 'w' }) => {
+        const download = ({ extra_headers = {}, write_mode = 'w', actual_size = 0 } = {}) => {
 
             const req = protocol.request({...options, ...extra_headers }, (res => {
+                res.on('data', function(chunk) {
+                    actual_size = actual_size + chunk.length;
+                    console.log(actual_size * 100 / headers['content-length'] + '\r');
+                    //process.stdout.write('' + actual_size * 100 / headers['content-length']);
+                });
+                res.on('end', () => {
+                    resolve(true); // successfully fill promise
+                });
                 res.pipe(fs.createWriteStream(path.join(final_path + temp_ext), { flags: write_mode }));
-                resolve(true); // successfully fill promise
             }));
+
             Object.keys(extra_headers).forEach((header) => {
-                console.log(extra_headers[header])
                 req.setHeader(header, extra_headers[header]);
             })
             req.on('error', error => {
@@ -43,7 +49,9 @@ export async function try_download(url_path, to_path = '') {
                 reject(error);
             });
 
-            req.end();
+            req.end(() => {
+                //resolve(true); // successfully fill promise
+            });
         }
 
         try { //check if file is completly downloaded, if not tries to resume download
@@ -53,7 +61,7 @@ export async function try_download(url_path, to_path = '') {
                 resolve(true);
             } else if (headers['accept-ranges'] === 'bytes') {
                 console.log("already exists, but incomplete, starting to resume donwload");
-                return download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a' });
+                return download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a', actual_size: file_stats.size });
             } else { //download fresh file
                 console.log("already exists, but incomplete, and can't resume");
                 return download();
@@ -67,7 +75,7 @@ export async function try_download(url_path, to_path = '') {
                     return download();
                 })
                 .then(() => {
-                    return download({ extra_headers: { 'Range': 'bytes=0-20000' }, write_mode: 'a' });
+                    return download();
                 });
         };
     });
