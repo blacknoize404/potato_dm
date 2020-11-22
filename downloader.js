@@ -3,13 +3,16 @@ import https from 'https'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
+import { EventEmitter } from 'events'
+
+
 
 /**
  * Tries to download the requested url to requested path
  *
  * Fallback to current working directory
  */
-export async function try_download(url_path, to_path = '') {
+async function try_download(url_path, to_path = '', event_emitter) {
     let url_parsed = url.parse(url_path, false);
 
     let protocol = http;
@@ -26,58 +29,55 @@ export async function try_download(url_path, to_path = '') {
 
     if (url_parsed.protocol == "https") { protocol = https };
 
-    return new Promise(function(resolve, reject) {
-        const download = ({ extra_headers = {}, write_mode = 'w', actual_size = 0 } = {}) => {
+    const download = ({ extra_headers = {}, write_mode = 'w', actual_size = 0 } = {}) => {
 
-            const req = protocol.request({...options, ...extra_headers }, (res => {
-                res.on('data', function(chunk) {
-                    actual_size = actual_size + chunk.length;
-                    process.stdout.write(`\rProgress: ${Math.round(actual_size * 100 / headers['content-length'])}%`)
-                });
-                res.on('end', () => {
-                    resolve(true); // successfully fill promise
-                });
-                res.pipe(fs.createWriteStream(path.join(final_path + temp_ext), { flags: write_mode }));
-            }));
-
-            Object.keys(extra_headers).forEach((header) => {
-                req.setHeader(header, extra_headers[header]);
-            })
-            req.on('error', error => {
-                //console.error(error)
-                reject(error);
+        const req = protocol.request({...options, ...extra_headers }, (res => {
+            res.on('data', function(chunk) {
+                actual_size = actual_size + chunk.length;
+                let progress_percent = Math.round(actual_size * 100 / headers['content-length']);
+                //process.stdout.write(`\rProgress: ${progress_percent}%`);
+                event_emitter.emit('data_chunk', progress_percent);
             });
-
-            req.end(() => {
-                //resolve(true); // successfully fill promise
+            res.on('end', () => {
+                event_emitter.emit('end');
             });
+            res.pipe(fs.createWriteStream(path.join(final_path + temp_ext), { flags: write_mode }));
+        }));
+
+        Object.keys(extra_headers).forEach((header) => {
+            req.setHeader(header, extra_headers[header]);
+        })
+        req.on('error', error => {
+            event_emitter.emit('error', error);
+        });
+
+        req.end();
+    }
+
+    try { //check if file is completly downloaded, if not tries to resume download
+        let file_stats = fs.statSync(final_path);
+        if (file_stats.size === parseInt(headers['content-length'])) {
+            console.log("already exists");
+            event_emitter.emit('end');
+        } else if (headers['accept-ranges'] === 'bytes') {
+            console.log("already exists, but incomplete, starting to resume donwload");
+            download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a', actual_size: file_stats.size });
+        } else { //download fresh file
+            console.log("already exists, but incomplete, and can't resume");
+            download();
         }
-
-        try { //check if file is completly downloaded, if not tries to resume download
-            let file_stats = fs.statSync(final_path);
-            if (file_stats.size === parseInt(headers['content-length'])) {
-                console.log("already exists");
-                resolve(true);
-            } else if (headers['accept-ranges'] === 'bytes') {
-                console.log("already exists, but incomplete, starting to resume donwload");
-                return download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a', actual_size: file_stats.size });
-            } else { //download fresh file
-                console.log("already exists, but incomplete, and can't resume");
-                return download();
-            }
-        } catch { //download fresh file
-            fs.promises.mkdir(to_path, { recursive: true })
-                .catch((err) => {
-                    console.error(err);
-                    console.log("Cannot create output directory, setting to default: " + process.cwd());
-                    to_path = "";
-                    return download();
-                })
-                .then(() => {
-                    return download();
-                });
-        };
-    });
+    } catch { //download fresh file
+        fs.promises.mkdir(to_path, { recursive: true })
+            .catch((err) => {
+                console.error(err);
+                console.log("Cannot create output directory, setting to default: " + process.cwd());
+                to_path = "";
+                download();
+            })
+            .then(() => {
+                download();
+            });
+    };
 }
 
 /**
@@ -114,4 +114,17 @@ export async function get_headers(url_path, req_data = ['']) {
 
         req.end();
     });
+}
+
+export class PotatoDM extends EventEmitter {
+    constructor(url_path, to_path = '') {
+        super();
+        this.url_path = url_path;
+        this.to_path = to_path;
+    }
+
+    _try_download() {
+        try_download(this.url_path, this.to_path, this);
+    }
+
 }
