@@ -1,9 +1,8 @@
 {
-  "type": "module",
   "name": "potato_dm",
   "version": "1.0.0",
   "description": "basic downloader manager, with auto pause/continue",
-  "main": "downloader.js",
+  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

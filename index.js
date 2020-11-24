@@ -1,18 +1,16 @@
-import http from 'http'
-import https from 'https'
-import fs from 'fs'
-import path from 'path'
-import url from 'url'
-import { EventEmitter } from 'events'
-
-
+var http = require('http');
+var https = require('https');
+var fs = require('fs');
+var path = require('path');
+var url = require('url');
+var { EventEmitter } = require('events');
 
 /**
  * Tries to download the requested url to requested path
  *
- * Fallback to current working directory
+ * Fallback to current working directory, and need one event emitter 
  */
-async function try_download(url_path, to_path = '', event_emitter) {
+async function try_download(url_path, to_path = '', event_emitter, fresh = false) {
     let url_parsed = url.parse(url_path, false);
 
     let protocol = http;
@@ -54,19 +52,7 @@ async function try_download(url_path, to_path = '', event_emitter) {
         req.end();
     }
 
-    try { //check if file is completly downloaded, if not tries to resume download
-        let file_stats = fs.statSync(final_path);
-        if (file_stats.size === parseInt(headers['content-length'])) {
-            console.log("already exists");
-            event_emitter.emit('end');
-        } else if (headers['accept-ranges'] === 'bytes') {
-            console.log("already exists, but incomplete, starting to resume donwload");
-            download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a', actual_size: file_stats.size });
-        } else { //download fresh file
-            console.log("already exists, but incomplete, and can't resume");
-            download();
-        }
-    } catch { //download fresh file
+    const fresh_download = () => {
         fs.promises.mkdir(to_path, { recursive: true })
             .catch((err) => {
                 console.error(err);
@@ -78,6 +64,26 @@ async function try_download(url_path, to_path = '', event_emitter) {
                 download();
             });
     };
+    if (!fresh) {
+        try { //check if file is completly downloaded, if not tries to resume download
+            let file_stats = fs.statSync(final_path);
+            if (file_stats.size === parseInt(headers['content-length'])) {
+                console.log("already exists");
+                event_emitter.emit('already exists');
+                event_emitter.emit('end');
+            } else if (headers['accept-ranges'] === 'bytes') {
+                console.log("already exists, but incomplete, starting to resume donwload");
+                download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a', actual_size: file_stats.size });
+            } else { //download fresh file
+                console.log("already exists, but incomplete, and can't resume");
+                download();
+            }
+        } catch { //download fresh file
+            fresh_download();
+        };
+    } else {
+        fresh_download();
+    }
 }
 
 /**
@@ -85,7 +91,7 @@ async function try_download(url_path, to_path = '', event_emitter) {
  *
  * It uses a HEAD request by default
  */
-export async function get_headers(url_path, req_data = ['']) {
+async function get_headers(url_path, req_data = ['']) {
     let url_parsed = url.parse(url_path, false);
     let protocol = http;
     let res_data = {};
@@ -116,15 +122,29 @@ export async function get_headers(url_path, req_data = ['']) {
     });
 }
 
-export class PotatoDM extends EventEmitter {
+class PotatoDM extends EventEmitter {
+    /**
+     * Main download manager, 
+     *
+     * Instanced for one url to download and one destination path
+     */
     constructor(url_path, to_path = '') {
         super();
         this.url_path = url_path;
         this.to_path = to_path;
-    }
+    };
+    /**
+     * Tries to download the requested url to requested path, all parameters retrieved from class instance
+     *
+     * Fallback to current working directory
+     * 
+     * Need one event emitter(provided by class)
+     * 
+     * @param fresh: if true, it will download a fresh version even if is already downloaded and correct.
+     */
+    _try_download(fresh = false) {
+        try_download(this.url_path, this.to_path, this, fresh);
+    };
+};
 
-    _try_download() {
-        try_download(this.url_path, this.to_path, this);
-    }
-
-}
+exports.PotatoDM = PotatoDM;
