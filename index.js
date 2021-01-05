@@ -4,13 +4,14 @@ var fs = require('fs');
 var path = require('path');
 var url = require('url');
 var { EventEmitter } = require('events');
+var crypto = require('crypto');
 
 /**
  * Tries to download the requested url to requested path
  *
  * Fallback to current working directory, and need one event emitter 
  */
-async function try_download(url_path, to_path = '', event_emitter, fresh = false) {
+async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '' } = {}) {
     let url_parsed = url.parse(url_path, false);
 
     let protocol = http;
@@ -22,67 +23,78 @@ async function try_download(url_path, to_path = '', event_emitter, fresh = false
     };
 
     let headers = await get_headers(url_path, ["accept-ranges", "content-disposition", 'content-length']);
-    let final_path = path.join(to_path, path.basename(url_path));
     let temp_ext = ""; //this is for download to a file with diferent ext for cache downloads, empty means no chache
-
+    let extra_headers_to_pass = extra_headers;
     if (url_parsed.protocol == "https") { protocol = https };
 
-    const download = ({ extra_headers = {}, write_mode = 'w', actual_size = 0 } = {}) => {
+    const download = ({ extra_headers = {...extra_headers_to_pass }, write_mode = 'w', actual_size = 0 } = {}) => {
+        let download_file_path = calc_file_path(url_path, file_name, download_folder_path);
 
-        const req = protocol.request({...options, ...extra_headers }, (res => {
-            res.on('data', function(chunk) {
-                actual_size = actual_size + chunk.length;
-                let progress_percent = Math.round(actual_size * 100 / headers['content-length']);
-                //process.stdout.write(`\rProgress: ${progress_percent}%`);
-                event_emitter.emit('data_chunk', progress_percent);
-            });
-            res.on('end', () => {
-                event_emitter.emit('end');
-            });
-            res.pipe(fs.createWriteStream(path.join(final_path + temp_ext), { flags: write_mode }));
-        }));
+        return new Promise(function(resolve, reject) {
 
-        Object.keys(extra_headers).forEach((header) => {
-            req.setHeader(header, extra_headers[header]);
-        })
-        req.on('error', error => {
-            event_emitter.emit('error', error);
+            const req = protocol.request({...options, ...extra_headers }, (res => {
+                if (res.statusCode >= 200 && res.statusCode < 300){//dont know much of status codes, fix later on
+                    res.on('data', function(chunk) {
+                        actual_size = actual_size + chunk.length;
+                        let progress_percent = (actual_size * 100 / headers['content-length']).toFixed(2);
+                        event_emitter.emit('data_chunk', progress_percent);
+                    });
+                    res.on('end', () => {
+                        event_emitter.emit('end', url_path, download_file_path);
+                        resolve(true); // successfully fill promise
+                    });
+                    res.pipe(fs.createWriteStream(path.join(download_file_path + temp_ext), { flags: write_mode }));
+                }else{
+                    let error = {error: "error retrieving from server",statusCode: res.statusCode};
+                    event_emitter.emit('error', error);
+                    reject(error);
+                }
+            }));
+
+            Object.keys(extra_headers).forEach((header) => {
+                req.setHeader(header, extra_headers[header]);
+            })
+            req.on('error', error => {
+                event_emitter.emit('error', error);
+                reject(error);
+            });
+
+            req.end();
         });
-
-        req.end();
     }
 
+
     const fresh_download = () => {
-        fs.promises.mkdir(to_path, { recursive: true })
+        return fs.promises.mkdir(download_folder_path, { recursive: true })
             .catch((err) => {
-                console.error(err);
-                console.log("Cannot create output directory, setting to default: " + process.cwd());
-                to_path = "";
-                download();
+                event_emitter.emit('error', err, "Cannot create output directory, setting to default: " + process.cwd());
+                download_folder_path = "";
+                return download();
             })
             .then(() => {
-                download();
+                return download();
             });
     };
+
     if (!fresh) {
         try { //check if file is completly downloaded, if not tries to resume download
-            let file_stats = fs.statSync(final_path);
+            let download_file_path = calc_file_path(url_path, file_name, download_folder_path);
+            let file_stats = fs.statSync(download_file_path);
             if (file_stats.size === parseInt(headers['content-length'])) {
-                console.log("already exists");
                 event_emitter.emit('already exists');
-                event_emitter.emit('end');
+                event_emitter.emit('end', url_path, download_file_path);
             } else if (headers['accept-ranges'] === 'bytes') {
-                console.log("already exists, but incomplete, starting to resume donwload");
-                download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-' }, write_mode: 'a', actual_size: file_stats.size });
+                event_emitter.emit('already_exists_resuming', "already exists, but incomplete, starting to resume donwload");
+                return download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-', ...extra_headers }, write_mode: 'a', actual_size: file_stats.size });
             } else { //download fresh file
-                console.log("already exists, but incomplete, and can't resume");
-                download();
+                event_emitter.emit('already_exists_restanting', "already exists, but incomplete, and can't resume, restarting fresh download");
+                return fresh_download();
             }
         } catch { //download fresh file
-            fresh_download();
+            return fresh_download();
         };
     } else {
-        fresh_download();
+        return fresh_download();
     }
 }
 
@@ -122,16 +134,59 @@ async function get_headers(url_path, req_data = ['']) {
     });
 }
 
+/**
+ * Utility for getting the resulting path to file
+ *
+ * If no `file_name` present, gets it from url.
+ * 
+ * If `extra_extension`, is appended at the end, besides the `file_name` extension
+ */
+const calc_file_path = (url_path, file_name = '', download_folder_path = '', extra_extension = '') => {
+    let file_path = '';
+    if (typeof file_name === 'string' && file_name !== '') {
+        file_path = path.join(download_folder_path, file_name);
+    } else {
+        file_path = path.join(download_folder_path, path.basename(url_path));
+    }
+    return append_file_extension(file_path, extra_extension);
+}
+
+/**
+ * Utility for adding an extra extension to de route
+ * 
+ * If `extension`, is appended at the end, besides the `file_name` extension.
+ */
+const append_file_extension = (path, extension = '') => {
+    let extension_to_append = '';
+    if (typeof extension === 'string' && extension !== '') {
+        extension_to_append = '.' + extension;
+    }
+    return (path + extension_to_append);
+}
+
 class PotatoDM extends EventEmitter {
     /**
      * Main download manager, 
      *
      * Instanced for one url to download and one destination path
+     * 
+     * 
+     * @param extra_params: object with extra params like:
+     * @param extra_params-extra_headers: if present, injects headers to the request
+     * @param extra_params-check_integrity: tells if validate file integrity by checksum, default to `sha1`
+     * 
+     * @todo implement `extra_params-check_integrity` this taking into account supported hashes.
+     * 
+     * 
      */
-    constructor(url_path, to_path = '') {
+    constructor(url_path, download_folder_path = '', { extra_headers = {}, check_integrity = 'sha1', file_name = '' } = {}) {
         super();
         this.url_path = url_path;
-        this.to_path = to_path;
+        this.download_folder_path = download_folder_path;
+        this.extra_headers = extra_headers;
+        this.check_integrity = check_integrity;
+        this.file_name = file_name;
+        this.default_ceck_integrity = 'sha1';
     };
     /**
      * Tries to download the requested url to requested path, all parameters retrieved from class instance
@@ -140,10 +195,64 @@ class PotatoDM extends EventEmitter {
      * 
      * Need one event emitter(provided by class)
      * 
-     * @param fresh: if true, it will download a fresh version even if is already downloaded and correct.
+     * @param fresh: If `true`, it will download a fresh version even if is already downloaded and correct.
+     * 
      */
     _try_download(fresh = false) {
-        try_download(this.url_path, this.to_path, this, fresh);
+        return try_download({ url_path: this.url_path, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, extra_headers: this.extra_headers, file_name: this.file_name })
+            .then(() => {
+                //console.log(append_file_extension(this.url_path, this.check_integrity || this.default_ceck_integrity));
+                if (this.check_integrity) this._check_integrity();
+            })
+            .catch(error =>{
+                
+            });
+    };
+    /**
+     * Check the integrity of downloaded file
+     *
+     * The download of checksum file fallbacks to current working directory, and extension `.sha1`.
+     * 
+     * Need one event emitter(provided by class)
+     * 
+     * @param fresh: if true, it will download a fresh version even if is already downloaded and correct. Default to `true`
+     * 
+     */
+    _check_integrity(checksum_url = append_file_extension(this.url_path, this.check_integrity || this.default_ceck_integrity), fresh = true) {
+        let event_emitter = this;
+        let check_integrity = this.check_integrity;
+        let file_path = calc_file_path(this.url_path, this.file_name, this.download_folder_path);
+
+        event_emitter.emit('check_integrity_start', { file_path: file_path, hash_type: check_integrity });
+
+        return try_download({ url_path: checksum_url, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, file_name: (this.file_name ? append_file_extension(this.file_name, check_integrity || this.default_ceck_integrity) : ''), extra_headers: this.extra_headers })
+            .then(() => {
+                let file_hash_path = calc_file_path(checksum_url, this.file_name, this.download_folder_path, this.check_integrity);
+                let hash = crypto.createHash(this.check_integrity);
+                let stream = fs.createReadStream(file_path);
+                let expected_hash = '';
+
+                /** 
+                 * @todo use other encodings, or guess encoding
+                 * @todo check a best the method of reading checksum, is actually spliting file content, etc
+                 */
+                fs.readFile(file_hash_path, 'utf8', (err, data) => {
+                    if (err) throw err;
+                    expected_hash = data.split(' ')[0];
+                });
+
+                stream.on('data', function(data) {
+                    hash.update(data, 'utf8') //why utf8?
+                });
+
+                stream.on('end', function() {
+                    let hash_value = hash.digest('hex');
+                    event_emitter.emit('check_integrity_end', { file_path: file_path, hash_type: check_integrity, hash: hash_value, pass: (hash_value === expected_hash) });
+                })
+            })
+            .catch( error => {//this is here solely for unhandled rejection warning
+                event_emitter.emit('error_downloading_checksum', { file_path: file_path, hash_type: check_integrity });
+            });
     };
 };
 

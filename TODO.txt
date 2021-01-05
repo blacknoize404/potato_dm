@@ -1,0 +1,10 @@
+-revisar q pasa cuando la ruta la doy con un / de primero o de ultimo porq el split annade un elemento vacio al final o al inicio
+-hacerle una especie de sobrecarga a la funcion get_data para q no tenga q parsear la url si la llama una funcion q ya la parseo
+-cuando lo corro en el vscode el main.js o el ejemplo, no se reescriben los outputs del progreso, en consola si
+-si no encuentra la ruta del file intenta descargarlo de 0 aunq la ruta de fallback si tenga un pedazo descargado
+-diferenciar los eventos lanzados por _check_integrity y try_download cuando intentan descargar
+-las funciones q tengo declaradas async dicen q retornon promises, fix that
+-revisar los headers q inyecto, porq si le paso range, se reanuda la descarga con multiples headers range y el resultodo es un file corrupto
+-deal with 404 errors.
+-a veces cuando descarga un file de checksum no lo puede abrir inmediatamente despues para leerlo, pero es solo a veces
+-cuando el server no retorna nada, no da ningun mensaje diciendolo, solo termina la ejecucion
