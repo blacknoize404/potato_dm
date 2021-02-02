@@ -1,6 +1,6 @@
 {
   "name": "potato_dm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "basic downloader manager, with auto pause/continue",
   "main": "index.js",
   "scripts": {

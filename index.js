@@ -1,17 +1,19 @@
-var http = require('http');
-var https = require('https');
+//var http = require('http');
+//var https = require('https');
 var fs = require('fs');
 var path = require('path');
 var url = require('url');
 var { EventEmitter } = require('events');
 var crypto = require('crypto');
+var http = require('follow-redirects').http;
+var https = require('follow-redirects').https;
 
 /**
  * Tries to download the requested url to requested path
  *
  * Fallback to current working directory, and need one event emitter 
  */
-async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '' } = {}) {
+async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '', allowed_redirect_hosts = null } = {}, ) {
     let url_parsed = url.parse(url_path, false);
 
     let protocol = http;
@@ -31,9 +33,24 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
         let download_file_path = calc_file_path(url_path, file_name, download_folder_path);
 
         return new Promise(function(resolve, reject) {
+            if (allowed_redirect_hosts != null) {
+                options.beforeRedirect = (options, { headers }) => {
+                    // Use this to adjust the request options upon redirecting,
+                    // to inspect the latest response headers,
+                    // or to cancel the request by throwing an error
+                    //console.log(options.hostname);
+                    allowed_redirect_hosts.forEach((host, index) => {
+                        if (options.hostname != host) {
+                            let warning = { warning: "warning, redirecting to non allowed host: " + options.hostname };
+                            event_emitter.emit('warning', warning);
+                            reject(warning);
+                        }
+                    });
+                };
+            }
 
             const req = protocol.request({...options, ...extra_headers }, (res => {
-                if (res.statusCode >= 200 && res.statusCode < 300){//dont know much of status codes, fix later on
+                if (res.statusCode >= 200 && res.statusCode < 300) { //dont know much of status codes, fix later on
                     res.on('data', function(chunk) {
                         actual_size = actual_size + chunk.length;
                         let progress_percent = (actual_size * 100 / headers['content-length']).toFixed(2);
@@ -44,8 +61,8 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
                         resolve(true); // successfully fill promise
                     });
                     res.pipe(fs.createWriteStream(path.join(download_file_path + temp_ext), { flags: write_mode }));
-                }else{
-                    let error = {error: "error retrieving from server",statusCode: res.statusCode};
+                } else {
+                    let error = { error: "error retrieving from server", statusCode: res.statusCode };
                     event_emitter.emit('error', error);
                     reject(error);
                 }
@@ -58,7 +75,6 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
                 event_emitter.emit('error', error);
                 reject(error);
             });
-
             req.end();
         });
     }
@@ -174,12 +190,13 @@ class PotatoDM extends EventEmitter {
      * @param extra_params: object with extra params like:
      * @param extra_params-extra_headers: if present, injects headers to the request
      * @param extra_params-check_integrity: tells if validate file integrity by checksum, default to `sha1`
+     * @param extra_params-allowed_redirect_hosts: list to check if redirects are in. The event emitter trows warning if not
      * 
      * @todo implement `extra_params-check_integrity` this taking into account supported hashes.
      * 
      * 
      */
-    constructor(url_path, download_folder_path = '', { extra_headers = {}, check_integrity = 'sha1', file_name = '' } = {}) {
+    constructor(url_path, download_folder_path = '', { extra_headers = {}, check_integrity = 'sha1', file_name = '', allowed_redirect_hosts = null } = {}) {
         super();
         this.url_path = url_path;
         this.download_folder_path = download_folder_path;
@@ -187,6 +204,7 @@ class PotatoDM extends EventEmitter {
         this.check_integrity = check_integrity;
         this.file_name = file_name;
         this.default_ceck_integrity = 'sha1';
+        this.allowed_redirect_hosts = allowed_redirect_hosts;
     };
     /**
      * Tries to download the requested url to requested path, all parameters retrieved from class instance
@@ -199,13 +217,13 @@ class PotatoDM extends EventEmitter {
      * 
      */
     _try_download(fresh = false) {
-        return try_download({ url_path: this.url_path, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, extra_headers: this.extra_headers, file_name: this.file_name })
+        return try_download({ url_path: this.url_path, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, extra_headers: this.extra_headers, file_name: this.file_name, allowed_redirect_hosts: this.allowed_redirect_hosts })
             .then(() => {
                 //console.log(append_file_extension(this.url_path, this.check_integrity || this.default_ceck_integrity));
                 if (this.check_integrity) this._check_integrity();
             })
-            .catch(error =>{
-                
+            .catch(error => {
+
             });
     };
     /**
@@ -250,7 +268,7 @@ class PotatoDM extends EventEmitter {
                     event_emitter.emit('check_integrity_end', { file_path: file_path, hash_type: check_integrity, hash: hash_value, pass: (hash_value === expected_hash) });
                 })
             })
-            .catch( error => {//this is here solely for unhandled rejection warning
+            .catch(error => { //this is here solely for unhandled rejection warning
                 event_emitter.emit('error_downloading_checksum', { file_path: file_path, hash_type: check_integrity });
             });
     };
