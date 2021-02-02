@@ -22,5 +22,8 @@
   "bugs": {
     "url": "https://github.com/daroxs95/potato_dm/issues"
   },
-  "homepage": "https://github.com/daroxs95/potato_dm#readme"
+  "homepage": "https://github.com/daroxs95/potato_dm#readme",
+  "dependencies": {
+    "follow-redirects": "^1.13.2"
+  }
 }
