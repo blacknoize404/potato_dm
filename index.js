@@ -275,3 +275,4 @@ class PotatoDM extends EventEmitter {
 };
 
 exports.PotatoDM = PotatoDM;
+exports.get_headers = get_headers;
