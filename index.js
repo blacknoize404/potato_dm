@@ -13,7 +13,7 @@ var https = require('follow-redirects').https;
  *
  * Fallback to current working directory, and need one event emitter 
  */
-async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '', allowed_redirect_hosts = null } = {}, ) {
+async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '', allowed_redirect_hosts = null, timeout = 10000 } = {}, ) {
     let url_parsed = url.parse(url_path, false);
 
     let protocol = http;
@@ -22,9 +22,10 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
         hostname: url_parsed.hostname,
         port: url_parsed.port,
         path: url_parsed.pathname,
+        timeout: timeout,
     };
 
-    let headers = await get_headers(url_path, ["accept-ranges", "content-disposition", 'content-length']);
+    let headers = await get_headers(url_path, ["accept-ranges", "content-disposition", 'content-length'], timeout);
     let temp_ext = ""; //this is for download to a file with diferent ext for cache downloads, empty means no chache
     let extra_headers_to_pass = extra_headers;
     if (url_parsed.protocol == "https") { protocol = https };
@@ -33,6 +34,15 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
         let download_file_path = calc_file_path(url_path, file_name, download_folder_path);
 
         return new Promise(function(resolve, reject) {
+            if (headers === 'timeout') {
+                event_emitter.emit('timeout', (options.timeout / 1000) + " seconds expired");
+                reject('timeout');
+            }
+            if (headers === 'error') {
+                let error = { error: "error getting headers from server" };
+                event_emitter.emit('error', error);
+                reject(error);
+            }
             if (allowed_redirect_hosts != null) {
                 options.beforeRedirect = (options, { headers }) => {
                     // Use this to adjust the request options upon redirecting,
@@ -71,6 +81,14 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
             Object.keys(extra_headers).forEach((header) => {
                 req.setHeader(header, extra_headers[header]);
             })
+
+            req.on('timeout', function() {
+                event_emitter.emit('timeout', (options.timeout / 1000) + " seconds expired");
+                //req.destroy();
+                reject('timeout');
+                req.abort();
+            });
+
             req.on('error', error => {
                 event_emitter.emit('error', error);
                 reject(error);
@@ -119,7 +137,7 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
  *
  * It uses a HEAD request by default
  */
-async function get_headers(url_path, req_data = ['']) {
+async function get_headers(url_path, req_data = [''], timeout = 10000) {
     let url_parsed = url.parse(url_path, false);
     let protocol = http;
     let res_data = {};
@@ -128,7 +146,8 @@ async function get_headers(url_path, req_data = ['']) {
         hostname: url_parsed.hostname,
         port: url_parsed.port,
         path: url_parsed.pathname,
-        method: 'HEAD'
+        method: 'HEAD',
+        timeout: timeout,
     };
 
     if (url_parsed.protocol == "https") { protocol = https }
@@ -141,6 +160,11 @@ async function get_headers(url_path, req_data = ['']) {
 
             resolve(res_data); // successfully fill promise
         }));
+
+        req.on('timeout', function() {
+            reject('timeout');
+            req.abort();
+        });
 
         req.on('error', error => {
             reject(error);
@@ -191,12 +215,13 @@ class PotatoDM extends EventEmitter {
      * @param extra_params-extra_headers: if present, injects headers to the request
      * @param extra_params-check_integrity: tells if validate file integrity by checksum, default to `sha1`
      * @param extra_params-allowed_redirect_hosts: list to check if redirects are in. The event emitter trows warning if not
+     * @param extra_params-timeout: time in miliseconds to wait for the conection
      * 
      * @todo implement `extra_params-check_integrity` this taking into account supported hashes.
      * 
      * 
      */
-    constructor(url_path, download_folder_path = '', { extra_headers = {}, check_integrity = 'sha1', file_name = '', allowed_redirect_hosts = null } = {}) {
+    constructor(url_path, download_folder_path = '', { extra_headers = {}, check_integrity = 'sha1', file_name = '', allowed_redirect_hosts = null, timeout = 10000 } = {}) {
         super();
         this.url_path = url_path;
         this.download_folder_path = download_folder_path;
@@ -205,6 +230,7 @@ class PotatoDM extends EventEmitter {
         this.file_name = file_name;
         this.default_ceck_integrity = 'sha1';
         this.allowed_redirect_hosts = allowed_redirect_hosts;
+        this.timeout = timeout;
     };
     /**
      * Tries to download the requested url to requested path, all parameters retrieved from class instance
@@ -217,7 +243,7 @@ class PotatoDM extends EventEmitter {
      * 
      */
     _try_download(fresh = false) {
-        return try_download({ url_path: this.url_path, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, extra_headers: this.extra_headers, file_name: this.file_name, allowed_redirect_hosts: this.allowed_redirect_hosts })
+        return try_download({ url_path: this.url_path, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, extra_headers: this.extra_headers, file_name: this.file_name, allowed_redirect_hosts: this.allowed_redirect_hosts, timeout: this.timeout })
             .then(() => {
                 //console.log(append_file_extension(this.url_path, this.check_integrity || this.default_ceck_integrity));
                 if (this.check_integrity) this._check_integrity();
@@ -243,7 +269,7 @@ class PotatoDM extends EventEmitter {
 
         event_emitter.emit('check_integrity_start', { file_path: file_path, hash_type: check_integrity });
 
-        return try_download({ url_path: checksum_url, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, file_name: (this.file_name ? append_file_extension(this.file_name, check_integrity || this.default_ceck_integrity) : ''), extra_headers: this.extra_headers })
+        return try_download({ url_path: checksum_url, download_folder_path: this.download_folder_path, event_emitter: this, fresh: fresh, file_name: (this.file_name ? append_file_extension(this.file_name, check_integrity || this.default_ceck_integrity) : ''), extra_headers: this.extra_headers, timeout: this.timeout })
             .then(() => {
                 let file_hash_path = calc_file_path(checksum_url, this.file_name, this.download_folder_path, this.check_integrity);
                 let hash = crypto.createHash(this.check_integrity);
