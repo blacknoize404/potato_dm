@@ -118,7 +118,7 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
                 event_emitter.emit('already exists');
                 event_emitter.emit('end', url_path, download_file_path);
             } else if (headers['accept-ranges'] === 'bytes') {
-                event_emitter.emit('already_exists_resuming', "already exists, but incomplete, starting to resume donwload");
+                event_emitter.emit('already_exists_resuming', "already exists, but incomplete, starting to resume download");
                 return download({ extra_headers: { 'Range': 'bytes=' + file_stats.size + '-', ...extra_headers }, write_mode: 'a', actual_size: file_stats.size });
             } else { //download fresh file
                 event_emitter.emit('already_exists_restanting', "already exists, but incomplete, and can't resume, restarting fresh download");
