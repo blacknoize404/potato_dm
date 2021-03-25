@@ -15,8 +15,8 @@ var https = require('follow-redirects').https;
  */
 async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '', allowed_redirect_hosts = null, timeout = 10000 } = {}, ) {
     //let url_parsed = url.parse(url_path, false);
-	let url_parsed = new URL(url_path);
-	
+    let url_parsed = new URL(url_path);
+
     let protocol = http;
 
     const options = {
@@ -67,7 +67,12 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
                 if (res.statusCode >= 200 && res.statusCode < 300) { //dont know much of status codes, fix later on
                     res.on('data', function(chunk) {
                         actual_size = actual_size + chunk.length;
-                        let progress_percent = (actual_size * 100 / headers['content-length']).toFixed(2);
+                        let progress_percent = "---";
+                        try {
+                            progress_percent = (actual_size * 100 / headers['content-length']).toFixed(2);
+                        } catch {
+                            console.log("Can't show download progress, there is no content-length in headers");
+                        }
                         event_emitter.emit('data_chunk', progress_percent);
                     });
                     res.on('end', () => {
