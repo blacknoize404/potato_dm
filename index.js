@@ -25,7 +25,10 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
         timeout: timeout,
     };
 
-    let headers = await get_headers(url_path, ["accept-ranges", "content-disposition", 'content-length'], timeout);
+    let headers = await get_headers(url_path, ["accept-ranges", "content-disposition", 'content-length'], timeout).catch(err => {
+        //console.log(err);//this empty catch propagates the catch to the instance of dm
+    });
+
     let temp_ext = ""; //this is for download to a file with diferent ext for cache downloads, empty means no chache
     let extra_headers_to_pass = extra_headers;
     if (url_parsed.protocol == "https") { protocol = https };
@@ -163,7 +166,7 @@ async function get_headers(url_path, req_data = [''], timeout = 10000) {
 
         req.on('timeout', function() {
             reject('timeout');
-            req.abort();
+            req.destroy();
         });
 
         req.on('error', error => {

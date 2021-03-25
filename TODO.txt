@@ -8,3 +8,4 @@
 -deal with 404 errors.
 -a veces cuando descarga un file de checksum no lo puede abrir inmediatamente despues para leerlo, pero es solo a veces
 -cuando el server no retorna nada, no da ningun mensaje diciendolo, solo termina la ejecucion
+-mejorar el manejo de errores cuando se espera por get_headers
