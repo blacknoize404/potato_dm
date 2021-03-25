@@ -14,8 +14,9 @@ var https = require('follow-redirects').https;
  * Fallback to current working directory, and need one event emitter 
  */
 async function try_download({ url_path, download_folder_path = '', event_emitter, fresh = false, extra_headers = {}, file_name = '', allowed_redirect_hosts = null, timeout = 10000 } = {}, ) {
-    let url_parsed = url.parse(url_path, false);
-
+    //let url_parsed = url.parse(url_path, false);
+	let url_parsed = new URL(url_path);
+	
     let protocol = http;
 
     const options = {
@@ -31,7 +32,7 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
 
     let temp_ext = ""; //this is for download to a file with diferent ext for cache downloads, empty means no chache
     let extra_headers_to_pass = extra_headers;
-    if (url_parsed.protocol == "https") { protocol = https };
+    if (url_parsed.protocol == "https" || url_parsed.protocol == "https:") { protocol = https };
 
     const download = ({ extra_headers = {...extra_headers_to_pass }, write_mode = 'w', actual_size = 0 } = {}) => {
         let download_file_path = calc_file_path(url_path, file_name, download_folder_path);
@@ -62,7 +63,7 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
                 };
             }
 
-            const req = protocol.request({...options, ...extra_headers }, (res => {
+            const req = protocol.request({...options, headers: {...extra_headers, ...options.headers } }, (res => {
                 if (res.statusCode >= 200 && res.statusCode < 300) { //dont know much of status codes, fix later on
                     res.on('data', function(chunk) {
                         actual_size = actual_size + chunk.length;
@@ -82,6 +83,7 @@ async function try_download({ url_path, download_folder_path = '', event_emitter
             }));
 
             Object.keys(extra_headers).forEach((header) => {
+                //not sure why added this here, maybe can delete it if all headers are already passed to request in his call
                 req.setHeader(header, extra_headers[header]);
             })
 
